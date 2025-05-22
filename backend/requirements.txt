@@ -1,0 +1,8 @@
+flask
+flask-cors
+pandas
+numpy
+scikit-learn
+scipy
+tqdm
+gunicorn       # for production server deployment (e.g., Render)
