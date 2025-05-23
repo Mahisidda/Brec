@@ -14,4 +14,4 @@ COPY data ./data
 EXPOSE 8000
 
 # Use gunicorn for production
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "app.main:app"]
+CMD ["gunicorn", "-w", "1", "--threads", "4", "-b", "0.0.0.0:8000", "app.main:app"]
