@@ -65,32 +65,49 @@ def recommend_for_user(user_id, context, k=10, top_n=3):
     u_idx = user_map[user_id]
     # Compute similarity of this user to all users
     sim_vec = cosine_similarity(matrix[u_idx], matrix).flatten()
-    # Find neighbors
-    neighbors = np.argsort(sim_vec)[-k-1:-1][::-1]
+    # Sort all users by descending similarity, then exclude the user itself
+    sorted_indices = np.argsort(sim_vec)[::-1]
+    neighbors = sorted_indices
     # Books this user has already rated
     seen = set(matrix[u_idx].nonzero()[1])
 
-    # Predict ratings
+    # Predict ratings with a fallback to simple average if similarity sum is zero
     preds = {}
-    for b in set().union(*(matrix[n].nonzero()[1] for n in neighbors)) - seen:
-        num = 0; den = 0
+    # collect all candidate books
+    candidate_books = set().union(*(matrix[n].nonzero()[1] for n in neighbors)) - seen
+
+    for b in candidate_books:
+        weighted_num = 0.0
+        weighted_den = 0.0
+        neighbor_ratings = []
+
         for n in neighbors:
             r = matrix[n, b]
             if r > 0:
-                num += sim_vec[n] * r
-                den += sim_vec[n]
-        if den > 0:
-            preds[b] = num / den
+                neighbor_ratings.append(r)
+                weighted_num += sim_vec[n] * r
+                weighted_den += sim_vec[n]
 
-    # Top-n
+        if weighted_den > 0:
+            # weighted average
+            preds[b] = weighted_num / weighted_den
+        elif neighbor_ratings:
+            # fallback: simple (unweighted) average
+            preds[b] = sum(neighbor_ratings) / len(neighbor_ratings)
+        # else: nobody rated it, skip
+
+    # Top-n by predicted score
     top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
+
     return [{
         'Book_ID': rev_book_map[b],
         'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
         'Recommendation_Score': float(score)
     } for b, score in top]
 
-def recommend_by_books(liked_books, context, k=10, top_n=5):
+
+
+# def recommend_by_books(liked_books, context, k=10, top_n=5):
     """
     Pseudo-user approach:
     Build a 1×num_books vector from liked_books,
@@ -133,6 +150,67 @@ def recommend_by_books(liked_books, context, k=10, top_n=5):
         'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
         'Recommendation_Score': float(score)
     } for b, score in top]
+
+def recommend_by_books(liked_books, context, k=10, top_n=5):
+    """
+    Pseudo-user CF:
+    Build a 1×num_books vector from liked_books,
+    compute similarity on the fly,
+    then recommend as above (with fallback).
+    """
+    matrix        = context['matrix']
+    book_map      = context['book_map']
+    rev_book_map  = context['rev_book_map']
+    isbn_to_title = context['isbn_to_title']
+
+    # 1) Build the pseudo‐user vector
+    n_books = matrix.shape[1]
+    liked_idxs = [book_map[isbn] for isbn in liked_books if isbn in book_map]
+    pseudo = np.zeros((1, n_books))
+    for idx in liked_idxs:
+        pseudo[0, idx] = 10.0
+
+    # 2) Compute similarities
+    sim_vec = cosine_similarity(pseudo, matrix).flatten()
+
+    # 3) Use *all* users sorted by similarity (descending)
+    sorted_idxs = np.argsort(sim_vec)[::-1]
+    neighbors = sorted_idxs  # do NOT slice by k here
+
+    # 4) Determine which books to predict
+    seen = set()
+    for n in neighbors:
+        seen |= set(matrix[n].nonzero()[1])
+    seen -= set(liked_idxs)
+    candidate_books = seen
+
+    # 5) Predict with weighted avg, fallback to simple avg
+    preds = {}
+    for b in candidate_books:
+        weighted_num = 0.0
+        weighted_den = 0.0
+        neighbor_ratings = []
+        for n in neighbors:
+            r = matrix[n, b]
+            if r > 0:
+                neighbor_ratings.append(r)
+                weighted_num += sim_vec[n] * r
+                weighted_den += sim_vec[n]
+
+        if weighted_den > 0:
+            preds[b] = weighted_num / weighted_den
+        elif neighbor_ratings:
+            preds[b] = sum(neighbor_ratings) / len(neighbor_ratings)
+        # else: nobody rated b, skip it
+
+    # 6) Take the top_n books
+    top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    return [{
+        'Book_ID': rev_book_map[b],
+        'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
+        'Recommendation_Score': float(score)
+    } for b, score in top]
+
 
 import pandas as pd
 import os

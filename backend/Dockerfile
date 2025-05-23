@@ -9,7 +9,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy code & data
 COPY app ./app
+COPY tests  ./tests
 COPY data ./data
+
+# 3. (Optionally) run pytest as part of build
+# RUN pytest --maxfail=1 -q 
 
 EXPOSE 8000
 
