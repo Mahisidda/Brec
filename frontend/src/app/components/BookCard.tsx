@@ -12,7 +12,7 @@ export default function BookCard({ book }: Props) {
   const coverUrl = `https://covers.openlibrary.org/b/isbn/${book.Book_ID}-M.jpg`;
 
   return (
-    <div className="p-4 border rounded shadow-sm bg-white">
+    <div className="p-4 border rounded shadow-sm bg-white" data-testid="book-card">
       {/* 1. Book Cover */}
       <img
         src={coverUrl}

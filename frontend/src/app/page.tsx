@@ -45,7 +45,6 @@ export default function Home() {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
     }
-    
     setLoading(false);
   };
 
@@ -73,7 +72,10 @@ export default function Home() {
       {error && <p className="text-red-500 mt-4">{error}</p>}
 
       {recs.length > 0 && (
-        <section className="mt-8">
+        <section
+          data-testid="recommendations-list"    {/* ← added test-id here */}
+          className="mt-8"
+        >
           <h2 className="text-2xl font-semibold mb-4">You Might Also Like:</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {recs.map((r, i) => (
