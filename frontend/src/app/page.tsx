@@ -73,7 +73,7 @@ export default function Home() {
 
       {recs.length > 0 && (
         <section
-          data-testid="recommendations-list"    {/* ← added test-id here */}
+          data-testid="recommendations-list"
           className="mt-8"
         >
           <h2 className="text-2xl font-semibold mb-4">You Might Also Like:</h2>

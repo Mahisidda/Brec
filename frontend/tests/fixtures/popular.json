@@ -1,4 +1,3 @@
-// frontend/tests/fixtures/popular.json
 [
     { "Book_ID": "111", "Book_Title": "alpha" },
     { "Book_ID": "222", "Book_Title": "bravo" },
