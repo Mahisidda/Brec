@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import BookCard from "./BookCard";
+import Skeletoncard from "./Skeletoncard";
 
 type Book = { Book_ID: string; Book_Title: string };
 type Props = {
@@ -35,23 +36,27 @@ export default function PopularGrid({ limit = 20, selected, onToggle }: Props) {
     fetchPopular();
   }, [limit, API_BASE]);
 
-  if (loading) return <p>Loading popular picks…</p>;
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {Array.from({ length: limit }).map((_, i) => (
+          <Skeletoncard key={i} />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {books.map((book) => {
-        const isSelected = selected.includes(book.Book_ID);
-        return (
-          <div
-            key={book.Book_ID}
-            className={`cursor-pointer p-2 border rounded ${isSelected ? "border-blue-600 bg-blue-50" : "border-gray-200"}`}
-            onClick={() => onToggle(book.Book_ID)}
-          >
-            <BookCard book={{ ...book, Recommendation_Score: 0 }} />
-            {isSelected && <div className="text-blue-600 mt-1">✓ Selected</div>}
-          </div>
-        );
-      })}
+      {books.map((book) => (
+        <div
+          key={book.Book_ID}
+          onClick={() => onToggle(book.Book_ID)}
+          className={`cursor-pointer ${selected.includes(book.Book_ID) ? "ring-2 ring-green-500" : ""}`}
+        >
+          <BookCard book={book} />
+        </div>
+      ))}
     </div>
   );
 }
