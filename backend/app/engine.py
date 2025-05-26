@@ -3,7 +3,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from .matrix import load_sparse_matrix
 import random
 import os
-import pandas as pd            # <— you need this for pd.read_csv
+import pandas as pd           
 
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')

@@ -50,7 +50,7 @@ export default function Home() {
 
   return (
     <main className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-4">📚 Choose Two Books You Loved</h1>
+      <h1 className="text-3xl font-bold mb-4"> Brec- The Book Recommender</h1>
       <p className="mb-2 text-gray-600">
         Click on at least two books below to get personalized recommendations.
       </p>
