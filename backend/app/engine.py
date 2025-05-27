@@ -241,14 +241,14 @@ def get_popular_books(limit: int = 20, context=None):
     # Prepare book info mapping
     books_path = os.path.join(DATA_DIR, 'Books.csv')
     df_books = pd.read_csv(books_path, delimiter=';')
-    books_map = df_books.set_index('ISBN')[['Book-Title', 'Book-Author']].to_dict(orient='index')
+    books_map = df_books.set_index('ISBN')[['Title', 'Author']].to_dict(orient='index')
     results = []
     for isbn in pick_isbns:
         info = books_map.get(isbn, {})
         results.append({
             'Book_ID': isbn,
-            'Book_Title': info.get('Book-Title', 'Unknown Title'),
-            'Author': info.get('Book-Author', 'Unknown Author'),
+            'Book_Title': info.get('Title', 'Unknown Title'),
+            'Author': info.get('Author', 'Unknown Author'),
             'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}',
         })
     return results
