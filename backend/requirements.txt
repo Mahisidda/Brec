@@ -1,7 +1,7 @@
 flask
 flask-cors
 pandas
-numpy
+numpy<2
 scikit-learn
 scipy
 tqdm
@@ -9,3 +9,4 @@ gunicorn       # for production server deployment (e.g., Render)
 pytest
 pytest-cov
 redis
+faiss-cpu

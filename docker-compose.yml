@@ -1,20 +1,20 @@
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: mahisidda/brec-backend:latest
     ports:
       - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: mahisidda/brec-frontend:latest
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - REDIS_HOST=redis
     depends_on:
       - backend
@@ -24,8 +24,9 @@ services:
     image: redis:latest
     ports:
       - "6379:6379"
-      volumes:
-        - redis_data:/data
     volumes:
-      redis_data:
+      - redis_data:/data
+
+volumes:
+  redis_data:
 

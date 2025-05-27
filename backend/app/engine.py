@@ -1,36 +1,36 @@
+import os
+import random
+import json
+import hashlib
 import numpy as np
+import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from .matrix import load_sparse_matrix
-import random
-import os
-import pandas as pd           
-import json
 from .redis_client import redis_client
+import faiss
 
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
+
 def load_all_data():
-    """
-    Loads matrix, mappings, and title lookup once.
-    """
+    """Loads matrix, mappings, and title lookup once."""
     ratings_csv = os.path.join(DATA_DIR, 'Ratings.csv')
-    books_csv   = os.path.join(DATA_DIR, 'Books.csv')
+    books_csv = os.path.join(DATA_DIR, 'Books.csv')
     return load_sparse_matrix(ratings_csv, books_csv)
+
 
 def get_random_user_id(user_map):
     """Pick a random real user ID from the dataset."""
     return int(random.choice(list(user_map.keys())))
 
+
 def get_user_rated_books(user_id, context):
-    """
-    For a given real user_id, return a list of books they've rated:
-    [ {Book_ID, Book_Title, Rating}, ... ]
-    """
-    user_map      = context['user_map']
-    rev_book_map  = context['rev_book_map']
+    """Returns all books rated by a specific user."""
+    user_map = context['user_map']
+    rev_book_map = context['rev_book_map']
     isbn_to_title = context['isbn_to_title']
-    matrix        = context['matrix']
+    matrix = context['matrix']
 
     if user_id not in user_map:
         return None
@@ -40,67 +40,58 @@ def get_user_rated_books(user_id, context):
     cols = row.nonzero()[1]
     vals = row.data
 
-    results = []
-    for col, val in zip(cols, vals):
-        isbn = rev_book_map[col]
-        title = isbn_to_title.get(isbn, "Unknown Title")
-        results.append({
-            'Book_ID': isbn,
-            'Book_Title': title,
-            'Rating': float(val)
-        })
-    return results
+    return [{
+        'Book_ID': rev_book_map[col],
+        'Book_Title': isbn_to_title.get(rev_book_map[col], "Unknown Title"),
+        'Rating': float(val)
+    } for col, val in zip(cols, vals)]
 
-def recommend_for_user(user_id, context, k=10, top_n=3):
-    """
-    The existing user-ID-based CF:
-    Returns top_n recommendations for a real user.
-    """
-    user_map      = context['user_map']
-    rev_book_map  = context['rev_book_map']
+
+def recommend_for_user(user_id, context, k=10, top_n=3, similarity_threshold=0.1):
+    """Collaborative Filtering: recommend top-N books for an existing user."""
+    user_map = context['user_map']
+    rev_book_map = context['rev_book_map']
     isbn_to_title = context['isbn_to_title']
-    matrix        = context['matrix']
+    matrix = context['matrix']
 
     if user_id not in user_map:
-        return None
+        return []
 
     u_idx = user_map[user_id]
-    # Compute similarity of this user to all users
-    sim_vec = cosine_similarity(matrix[u_idx], matrix).flatten()
-    # Sort all users by descending similarity, then exclude the user itself
-    sorted_indices = np.argsort(sim_vec)[::-1]
-    neighbors = sorted_indices
-    # Books this user has already rated
+    user_vector = matrix[u_idx]
+
+    sim_vec = cosine_similarity(user_vector, matrix).flatten()
+    eligible = np.where(sim_vec > similarity_threshold)[0]
+    if len(eligible) > k:
+        neighbors = eligible[np.argpartition(sim_vec[eligible], -k)[-k:]]
+        neighbors = neighbors[np.argsort(sim_vec[neighbors])[::-1]]
+    else:
+        neighbors = eligible
+
+    if len(neighbors) == 0:
+        return []
+
     seen = set(matrix[u_idx].nonzero()[1])
+    nonzeros_cache = {n: matrix[n].nonzero()[1] for n in neighbors}
+    candidate_books = set().union(*nonzeros_cache.values()) - seen
 
-    # Predict ratings with a fallback to simple average if similarity sum is zero
+    if not candidate_books:
+        return []
+
+    candidate_idxs = list(candidate_books)
+    ratings_submatrix = matrix[:, candidate_idxs]
+    numerators = sim_vec @ ratings_submatrix
+    denominators = np.array([
+        np.dot(sim_vec, (ratings_submatrix[:, i] > 0).astype(float))
+        for i in range(ratings_submatrix.shape[1])
+    ])
+
     preds = {}
-    # collect all candidate books
-    candidate_books = set().union(*(matrix[n].nonzero()[1] for n in neighbors)) - seen
+    for i, b in enumerate(candidate_idxs):
+        if denominators[i] > 0:
+            preds[b] = numerators[i] / denominators[i]
 
-    for b in candidate_books:
-        weighted_num = 0.0
-        weighted_den = 0.0
-        neighbor_ratings = []
-
-        for n in neighbors:
-            r = matrix[n, b]
-            if r > 0:
-                neighbor_ratings.append(r)
-                weighted_num += sim_vec[n] * r
-                weighted_den += sim_vec[n]
-
-        if weighted_den > 0:
-            # weighted average
-            preds[b] = weighted_num / weighted_den
-        elif neighbor_ratings:
-            # fallback: simple (unweighted) average
-            preds[b] = sum(neighbor_ratings) / len(neighbor_ratings)
-        # else: nobody rated it, skip
-
-    # Top-n by predicted score
     top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-
     return [{
         'Book_ID': rev_book_map[b],
         'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
@@ -108,122 +99,165 @@ def recommend_for_user(user_id, context, k=10, top_n=3):
     } for b, score in top]
 
 
+#def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
+    """Pseudo-user collaborative filtering using liked books."""
+    cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
+    cached = redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached.decode("utf-8"))
 
-# def recommend_by_books(liked_books, context, k=10, top_n=5):
-    """
-    Pseudo-user approach:
-    Build a 1×num_books vector from liked_books,
-    compute similarity on the fly,
-    then recommend as above.
-    """
-    matrix        = context['matrix']
-    book_map      = context['book_map']
-    rev_book_map  = context['rev_book_map']
+    matrix = context['matrix']
+    book_map = context['book_map']
+    rev_book_map = context['rev_book_map']
     isbn_to_title = context['isbn_to_title']
 
     n_books = matrix.shape[1]
-    # Map liked ISBNs to indices, ignore missing
     liked_idxs = [book_map[isbn] for isbn in liked_books if isbn in book_map]
-    # Build pseudo-user vector
+    if not liked_idxs:
+        return []
+
     pseudo = np.zeros((1, n_books))
     for idx in liked_idxs:
         pseudo[0, idx] = 10.0
 
-    # Compute similarity
     sim_vec = cosine_similarity(pseudo, matrix).flatten()
-    neighbors = np.argsort(sim_vec)[-k:][::-1]
+    eligible = np.where(sim_vec > similarity_threshold)[0]
+    if len(eligible) > k:
+        neighbors = eligible[np.argpartition(sim_vec[eligible], -k)[-k:]]
+        neighbors = neighbors[np.argsort(sim_vec[neighbors])[::-1]]
+    else:
+        neighbors = eligible
 
-    seen = set().union(*(matrix[n].nonzero()[1] for n in neighbors)) - set(liked_idxs)
+    if len(neighbors) == 0:
+        return []
+
+    nonzeros_cache = {n: matrix[n].nonzero()[1] for n in neighbors}
+    candidate_books = set().union(*nonzeros_cache.values()) - set(liked_idxs)
+
+    if not candidate_books:
+        return []
+
+    candidate_idxs = list(candidate_books)
+    ratings_submatrix = matrix[:, candidate_idxs]
+    numerators = sim_vec @ ratings_submatrix
+    denominators = np.array([
+        np.dot(sim_vec, (ratings_submatrix[:, i] > 0).astype(float))
+        for i in range(ratings_submatrix.shape[1])
+    ])
 
     preds = {}
-    for b in seen:
-        num = den = 0
-        for n in neighbors:
-            r = matrix[n, b]
-            if r > 0:
-                num += sim_vec[n] * r
-                den += sim_vec[n]
-        if den > 0:
-            preds[b] = num / den
+    for i, b in enumerate(candidate_idxs):
+        if denominators[i] > 0:
+            preds[b] = numerators[i] / denominators[i]
 
     top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-    return [{
+    result = [{
         'Book_ID': rev_book_map[b],
         'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
         'Recommendation_Score': float(score)
     } for b, score in top]
 
-def recommend_by_books(liked_books, context, k=10, top_n=5):
-    """
-    Pseudo-user CF:
-    Build a 1×num_books vector from liked_books,
-    compute similarity on the fly,
-    then recommend as above (with fallback).
-    """
-    matrix        = context['matrix']
-    book_map      = context['book_map']
-    rev_book_map  = context['rev_book_map']
-    isbn_to_title = context['isbn_to_title']
+    redis_client.setex(cache_key, 600, json.dumps(result))
+    return result
 
-    # 1) Build the pseudo‐user vector
+def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
+    """FAISS-accelerated pseudo-user collaborative filtering."""
+    cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
+    cached = redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached.decode("utf-8"))
+
+    matrix = context['matrix']
+    book_map = context['book_map']
+    rev_book_map = context['rev_book_map']
+    isbn_to_title = context['isbn_to_title']
+    faiss_index = context['faiss_index']
+
     n_books = matrix.shape[1]
     liked_idxs = [book_map[isbn] for isbn in liked_books if isbn in book_map]
-    pseudo = np.zeros((1, n_books))
+    if not liked_idxs:
+        return []
+
+    # Build normalized pseudo-user vector
+    pseudo = np.zeros((1, n_books), dtype=np.float32)
     for idx in liked_idxs:
         pseudo[0, idx] = 10.0
+    faiss.normalize_L2(pseudo)
 
-    # 2) Compute similarities
-    sim_vec = cosine_similarity(pseudo, matrix).flatten()
+    # Query FAISS for top-k similar users
+    # D are distances (lower is better), I are indices of neighbors
+    distances, neighbor_indices = faiss_index.search(pseudo, k + len(liked_idxs)) # search for more to account for self/already liked
 
-    # 3) Use *all* users sorted by similarity (descending)
-    sorted_idxs = np.argsort(sim_vec)[::-1]
-    neighbors = sorted_idxs  # do NOT slice by k here
+    # Convert distances to similarities (e.g., 1 / (1 + distance) or exp(-distance))
+    # Ensure sim_vec aligns with the actual neighbors used.
+    # Filter out the pseudo-user itself if it appears in neighbors, and any invalid indices like -1
+    
+    valid_neighbor_indices = []
+    similarities_to_valid_neighbors = []
 
-    # 4) Determine which books to predict
-    seen = set()
-    for n in neighbors:
-        seen |= set(matrix[n].nonzero()[1])
-    seen -= set(liked_idxs)
-    candidate_books = seen
+    temp_sim_vec = 1.0 / (1.0 + distances.flatten()) # Example similarity conversion
 
-    # 5) Predict with weighted avg, fallback to simple avg
+    for i, neighbor_idx in enumerate(neighbor_indices.flatten()):
+        if neighbor_idx != -1: # FAISS can return -1 if not enough neighbors found
+            # Potentially, also check if neighbor_idx corresponds to the pseudo-user's own items if matrix stores users directly
+            valid_neighbor_indices.append(neighbor_idx)
+            similarities_to_valid_neighbors.append(temp_sim_vec[i])
+    
+    if not valid_neighbor_indices:
+        return []
+
+    neighbors = np.array(valid_neighbor_indices)
+    sim_vec = np.array(similarities_to_valid_neighbors)
+
+    # Refine k if we found fewer valid neighbors
+    current_k = len(neighbors)
+    if current_k == 0:
+        return []
+
+    # Get books rated by neighbors, excluding liked books
+    nonzeros_cache = {n: matrix[n].nonzero()[1] for n in neighbors}
+    candidate_books = set().union(*nonzeros_cache.values()) - set(liked_idxs)
+    if not candidate_books:
+        return []
+
+    candidate_idxs = list(candidate_books)
+    
+    # Create submatrix of ratings from THE K NEIGHBORS for the candidate books
+    # Shape: (current_k, num_candidate_books)
+    ratings_submatrix_k_neighbors = matrix[neighbors, :][:, candidate_idxs]
+
+    # Calculate weighted sum of ratings from neighbors
+    # sim_vec is (current_k,), ratings_submatrix_k_neighbors is (current_k, num_candidate_books)
+    # Resulting numerators shape: (num_candidate_books,)
+    numerators = sim_vec @ ratings_submatrix_k_neighbors.toarray() # Ensure dense for matmul if sim_vec is dense
+
+    # Calculate denominators: sum of similarities of neighbors who rated each candidate book
+    denominators = np.zeros(len(candidate_idxs), dtype=np.float32)
+    for i in range(len(candidate_idxs)):
+        # For candidate book `i` (which is candidate_idxs[i]), find which of the k neighbors rated it
+        rated_this_book_mask = ratings_submatrix_k_neighbors[:, i].toarray().flatten() > 0
+        denominators[i] = np.sum(sim_vec[rated_this_book_mask])
+
     preds = {}
-    for b in candidate_books:
-        weighted_num = 0.0
-        weighted_den = 0.0
-        neighbor_ratings = []
-        for n in neighbors:
-            r = matrix[n, b]
-            if r > 0:
-                neighbor_ratings.append(r)
-                weighted_num += sim_vec[n] * r
-                weighted_den += sim_vec[n]
+    for i, book_original_idx in enumerate(candidate_idxs):
+        if denominators[i] > 0:
+            preds[book_original_idx] = numerators[i] / denominators[i]
 
-        if weighted_den > 0:
-            preds[b] = weighted_num / weighted_den
-        elif neighbor_ratings:
-            preds[b] = sum(neighbor_ratings) / len(neighbor_ratings)
-        # else: nobody rated b, skip it
-
-    # 6) Take the top_n books
     top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-    return [{
+    result = [{
         'Book_ID': rev_book_map[b],
         'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
         'Recommendation_Score': float(score)
     } for b, score in top]
 
+    redis_client.setex(cache_key, 600, json.dumps(result))
+    return result
 
-import pandas as pd
-import os
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+
 
 def get_popular_books(limit: int = 20, context=None):
-    """
-    Returns the top-N most frequently rated books (by count of ratings > 0).
-    Caches the top 100 in Redis for 10 minutes.
-    """
+    """Returns top-N popular books by rating count, with Redis caching."""
     cache_key = "popular_books_top100"
     cached = redis_client.get(cache_key)
     if cached:
@@ -232,18 +266,16 @@ def get_popular_books(limit: int = 20, context=None):
         ratings_path = os.path.join(DATA_DIR, 'Ratings.csv')
         df_ratings = pd.read_csv(ratings_path, delimiter=';')
         top_isbns = df_ratings[df_ratings['Rating'] > 0]['ISBN'].value_counts().head(100).index.tolist()
-        redis_client.setex(cache_key, 600, json.dumps(top_isbns))  # cache for 10 minutes
+        redis_client.setex(cache_key, 600, json.dumps(top_isbns))
 
-    # Shuffle and pick 'limit'
     random.shuffle(top_isbns)
     pick_isbns = top_isbns[:limit]
 
-    # Prepare book info mapping
     books_path = os.path.join(DATA_DIR, 'Books.csv')
     df_books = pd.read_csv(books_path, delimiter=';')
     df_books_unique = df_books.drop_duplicates(subset='ISBN', keep='first')
     books_map = df_books_unique.set_index('ISBN')[['Title', 'Author']].to_dict(orient='index')
-    #books_map = df_books.set_index('ISBN')[['Title', 'Author']].to_dict(orient='index')
+
     results = []
     for isbn in pick_isbns:
         info = books_map.get(isbn, {})
@@ -254,3 +286,9 @@ def get_popular_books(limit: int = 20, context=None):
             'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}',
         })
     return results
+
+
+def cache_key_for_recommendation(liked_books, top_n, k=None, threshold=None):
+    books_sorted = sorted(liked_books)
+    raw = f"{books_sorted}-{top_n}-{k}-{threshold}"
+    return "rec:" + hashlib.sha256(raw.encode()).hexdigest()

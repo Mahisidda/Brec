@@ -1,5 +1,7 @@
 import pandas as pd
 from scipy.sparse import csr_matrix
+import numpy as np
+import faiss
 import os
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -7,16 +9,16 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 def load_sparse_matrix(ratings_path=None, books_path=None,
                        min_user_ratings=5, min_book_ratings=10):
     """
-    Reads Ratings.csv and Books.csv, filters infrequent users/books,
-    and builds a CSR sparse matrix of shape (num_users, num_books).
-    Returns: matrix, user_map, rev_user_map, rev_book_map, isbn_to_title
+    Builds a CSR matrix from Ratings.csv and Books.csv after filtering.
+    Returns:
+        matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_title
     """
     ratings_path = ratings_path or os.path.join(DATA_DIR, 'Ratings.csv')
     books_path = books_path or os.path.join(DATA_DIR, 'Books.csv')
 
     # Load and filter ratings
-    ratings = pd.read_csv(ratings_path, delimiter=';')
-    ratings = ratings[ratings['Rating'] > 0]  # drop zeros
+    ratings = pd.read_csv(ratings_path, delimiter=';', encoding='latin-1', engine='python')
+    ratings = ratings[ratings['Rating'] > 0]
 
     user_counts = ratings['User-ID'].value_counts()
     book_counts = ratings['ISBN'].value_counts()
@@ -31,7 +33,6 @@ def load_sparse_matrix(ratings_path=None, books_path=None,
     rev_user_map = {idx: uid for uid, idx in user_map.items()}
     rev_book_map = {idx: isbn for isbn, idx in book_map.items()}
 
-    # Build sparse matrix
     ratings['user_idx'] = ratings['User-ID'].map(user_map)
     ratings['book_idx'] = ratings['ISBN'].map(book_map)
     matrix = csr_matrix(
@@ -40,7 +41,19 @@ def load_sparse_matrix(ratings_path=None, books_path=None,
     )
 
     # Load book titles
-    books = pd.read_csv(books_path, delimiter=';')
+    books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', engine='python')
     isbn_to_title = dict(zip(books['ISBN'], books['Title']))
 
-    return matrix, user_map, rev_user_map, rev_book_map, isbn_to_title
+    return matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_title
+
+
+def build_faiss_index(matrix):
+    """
+    Builds a FAISS index from the user-book rating matrix (row-wise user vectors).
+    Uses cosine similarity (via inner product on normalized vectors).
+    """
+    dense_matrix = matrix.astype(np.float32).toarray()
+    faiss.normalize_L2(dense_matrix)
+    index = faiss.IndexFlatIP(dense_matrix.shape[1])  # Inner product index
+    index.add(dense_matrix)
+    return index

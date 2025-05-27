@@ -27,12 +27,27 @@ export default function PopularGrid({ limit = 20, selected, onToggle }: Props) {
 
   useEffect(() => {
     async function fetchPopular() {
-      setLoading(true);
-      const res = await fetch(`${API_BASE}/popular_books?limit=${limit}`);
-      const data: Book[] = await res.json();
-      setBooks(shuffleArray(data));  // ← shuffle here
-      setLoading(false);
+      try {
+        setLoading(true);
+        if (!API_BASE) {
+          throw new Error("Environment variable NEXT_PUBLIC_API_URL is not defined");
+        }
+
+        const res = await fetch(`${API_BASE}/popular_books?limit=${limit}`);
+        if (!res.ok) {
+          throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
+        }
+
+        const data: Book[] = await res.json();
+        setBooks(shuffleArray(data));
+      } catch (error) {
+        console.error("Error fetching popular books:", error);
+        setBooks([]);
+      } finally {
+        setLoading(false);
+      }
     }
+
     fetchPopular();
   }, [limit, API_BASE]);
 
@@ -46,13 +61,23 @@ export default function PopularGrid({ limit = 20, selected, onToggle }: Props) {
     );
   }
 
+  if (!loading && books.length === 0) {
+    return (
+      <div className="text-center text-gray-500">
+        No popular books found. Please try again later.
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {books.map((book) => (
         <div
           key={book.Book_ID}
           onClick={() => onToggle(book.Book_ID)}
-          className={`cursor-pointer ${selected.includes(book.Book_ID) ? "ring-2 ring-green-500" : ""}`}
+          className={`cursor-pointer ${
+            selected.includes(book.Book_ID) ? "ring-2 ring-green-500" : ""
+          }`}
         >
           <BookCard book={book} />
         </div>

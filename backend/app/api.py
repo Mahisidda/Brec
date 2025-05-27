@@ -40,6 +40,7 @@ def recommend_books_route():
     liked = request.json.get('liked_books', [])
     ctx = current_app.config['MODEL_CONTEXT']
     recs = recommend_by_books(liked, ctx)
+    print(recs)
     return jsonify(recs)
 
 @api_blueprint.route('/', methods=['GET'])
