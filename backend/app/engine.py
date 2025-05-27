@@ -4,6 +4,8 @@ from .matrix import load_sparse_matrix
 import random
 import os
 import pandas as pd           
+import json
+from .redis_client import redis_client
 
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -220,21 +222,33 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 def get_popular_books(limit: int = 20, context=None):
     """
     Returns the top-N most frequently rated books (by count of ratings > 0).
+    Caches the top 100 in Redis for 10 minutes.
     """
-    ratings_path = os.path.join(DATA_DIR, 'Ratings.csv')
-    # Read and filter
-    df = pd.read_csv(ratings_path, delimiter=';')
-    df = df[df['Rating'] > 0]
-    # Count ratings per ISBN
-    top_isbns = df['ISBN'].value_counts().head(limit).index.tolist()
+    cache_key = "popular_books_top100"
+    cached = redis_client.get(cache_key)
+    if cached:
+        top_isbns = json.loads(cached)
+    else:
+        ratings_path = os.path.join(DATA_DIR, 'Ratings.csv')
+        df_ratings = pd.read_csv(ratings_path, delimiter=';')
+        top_isbns = df_ratings[df_ratings['Rating'] > 0]['ISBN'].value_counts().head(100).index.tolist()
+        redis_client.setex(cache_key, 600, json.dumps(top_isbns))  # cache for 10 minutes
 
-    # Map to titles
-    isbn_to_title = context['isbn_to_title'] if context else {}
+    # Shuffle and pick 'limit'
+    random.shuffle(top_isbns)
+    pick_isbns = top_isbns[:limit]
+
+    # Prepare book info mapping
+    books_path = os.path.join(DATA_DIR, 'Books.csv')
+    df_books = pd.read_csv(books_path, delimiter=';')
+    books_map = df_books.set_index('ISBN')[['Book-Title', 'Book-Author']].to_dict(orient='index')
     results = []
-    for isbn in top_isbns:
-        title = isbn_to_title.get(isbn, "Unknown Title")
+    for isbn in pick_isbns:
+        info = books_map.get(isbn, {})
         results.append({
             'Book_ID': isbn,
-            'Book_Title': title
+            'Book_Title': info.get('Book-Title', 'Unknown Title'),
+            'Author': info.get('Book-Author', 'Unknown Author'),
+            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}',
         })
     return results

@@ -4,6 +4,8 @@ type Props = {
   book: {
     Book_ID: string;
     Book_Title: string;
+    Author?: string;
+    Goodreads_URL?: string;
     Recommendation_Score?: number;
   };
 };
@@ -27,7 +29,19 @@ export default function BookCard({ book }: Props) {
       {/* 2. Title */}
       <h3 className="text-lg text-black font-semibold">{book.Book_Title}</h3>
 
-      {/* 3. (Optional) Score */}
+      {/* 3. Author */}
+      {book.Author && (
+        <p className="text-sm text-gray-600 mb-1">By {book.Author}</p>
+      )}
+
+      {/* 4. Goodreads Link */}
+      {book.Goodreads_URL && (
+        <a href={book.Goodreads_URL} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-xs">
+          View on Goodreads
+        </a>
+      )}
+
+      {/* 5. (Optional) Score */}
       {book.Recommendation_Score !== undefined && (
         <p className="text-sm text-gray-700 mt-1">
           Score: {book.Recommendation_Score.toFixed(2)}

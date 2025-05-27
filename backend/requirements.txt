@@ -8,3 +8,4 @@ tqdm
 gunicorn       # for production server deployment (e.g., Render)
 pytest
 pytest-cov
+redis

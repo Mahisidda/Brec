@@ -58,12 +58,8 @@ def home():
 
 
 @api_blueprint.route('/popular_books', methods=['GET'])
-def popular_books_route():
-    """
-    GET /popular_books?limit=20
-    Returns the top-N most-rated books for user selection.
-    """
-    limit = request.args.get('limit', default=10, type=int)
-    ctx   = current_app.config['MODEL_CONTEXT']
-    popular = get_popular_books(limit, ctx)
-    return jsonify(popular)
+def popular_books():
+    limit = int(request.args.get('limit', 20))
+    context = load_all_data()  # or however you get your context
+    books = get_popular_books(limit=limit, context=context)
+    return jsonify(books)
