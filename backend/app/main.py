@@ -20,7 +20,7 @@ CORS(
 )
 
 # Load data once at startup
-matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_title = load_all_data()
+matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_details = load_all_data()
 faiss_index = build_faiss_index(matrix)  # ✅ FAISS step
 
 # Store everything in context
@@ -30,7 +30,7 @@ app.config['MODEL_CONTEXT'] = {
     'book_map': book_map,
     'rev_user_map': rev_user_map,
     'rev_book_map': rev_book_map,
-    'isbn_to_title': isbn_to_title,
+    'isbn_to_details': isbn_to_details,
     'faiss_index': faiss_index  # ✅ FAISS index now available in context
 }
 

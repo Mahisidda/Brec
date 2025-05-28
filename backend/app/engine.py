@@ -29,7 +29,7 @@ def get_user_rated_books(user_id, context):
     """Returns all books rated by a specific user."""
     user_map = context['user_map']
     rev_book_map = context['rev_book_map']
-    isbn_to_title = context['isbn_to_title']
+    isbn_to_details = context['isbn_to_details']
     matrix = context['matrix']
 
     if user_id not in user_map:
@@ -39,19 +39,26 @@ def get_user_rated_books(user_id, context):
     row = matrix[u_idx]
     cols = row.nonzero()[1]
     vals = row.data
-
-    return [{
-        'Book_ID': rev_book_map[col],
-        'Book_Title': isbn_to_title.get(rev_book_map[col], "Unknown Title"),
-        'Rating': float(val)
-    } for col, val in zip(cols, vals)]
+    
+    results = []
+    for col, val in zip(cols, vals):
+        isbn = rev_book_map[col]
+        details = isbn_to_details.get(isbn, {})
+        results.append({
+            'Book_ID': isbn,
+            'Book_Title': details.get('Title', 'Unknown Title'),
+            'Author': details.get('Author', 'Unknown Author'),
+            'Rating': float(val),
+            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}'
+        })
+    return results
 
 
 def recommend_for_user(user_id, context, k=10, top_n=3, similarity_threshold=0.1):
     """Collaborative Filtering: recommend top-N books for an existing user."""
     user_map = context['user_map']
     rev_book_map = context['rev_book_map']
-    isbn_to_title = context['isbn_to_title']
+    isbn_to_details = context['isbn_to_details']
     matrix = context['matrix']
 
     if user_id not in user_map:
@@ -92,11 +99,19 @@ def recommend_for_user(user_id, context, k=10, top_n=3, similarity_threshold=0.1
             preds[b] = numerators[i] / denominators[i]
 
     top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-    return [{
-        'Book_ID': rev_book_map[b],
-        'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
-        'Recommendation_Score': float(score)
-    } for b, score in top]
+    
+    results = []
+    for b_idx, score in top:
+        isbn = rev_book_map[b_idx]
+        details = isbn_to_details.get(isbn, {})
+        results.append({
+            'Book_ID': isbn,
+            'Book_Title': details.get('Title', 'Unknown Title'),
+            'Author': details.get('Author', 'Unknown Author'),
+            'Recommendation_Score': float(score),
+            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}'
+        })
+    return results
 
 
 #def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
@@ -170,7 +185,7 @@ def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold
     matrix = context['matrix']
     book_map = context['book_map']
     rev_book_map = context['rev_book_map']
-    isbn_to_title = context['isbn_to_title']
+    isbn_to_details = context['isbn_to_details']
     faiss_index = context['faiss_index']
 
     n_books = matrix.shape[1]
@@ -244,13 +259,20 @@ def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold
             preds[book_original_idx] = numerators[i] / denominators[i]
 
     top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-    result = [{
-        'Book_ID': rev_book_map[b],
-        'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
-        'Recommendation_Score': float(score)
-    } for b, score in top]
+    result = []
+    for book_original_idx, score in top:
+        isbn = rev_book_map[book_original_idx]
+        details = isbn_to_details.get(isbn, {})
+        result.append({
+            'Book_ID': isbn,
+            'Book_Title': details.get('Title', 'Unknown Title'),
+            'Author': details.get('Author', 'Unknown Author'),
+            'Recommendation_Score': float(score),
+            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}'
+        })
 
-    redis_client.setex(cache_key, 600, json.dumps(result))
+    if redis_client:
+        redis_client.setex(cache_key, 600, json.dumps(result))
     return result
 
 
@@ -272,18 +294,27 @@ def get_popular_books(limit: int = 20, context=None):
     pick_isbns = top_isbns[:limit]
 
     books_path = os.path.join(DATA_DIR, 'Books.csv')
-    df_books = pd.read_csv(books_path, delimiter=';')
+    df_books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', on_bad_lines='skip')
     df_books_unique = df_books.drop_duplicates(subset='ISBN', keep='first')
-    books_map = df_books_unique.set_index('ISBN')[['Title', 'Author']].to_dict(orient='index')
+    # Ensure 'Book-Author' is used if that's the actual column name, otherwise 'Author'
+    # Creating a robust books_map that handles missing columns gracefully
+    
+    raw_books_map = df_books_unique.set_index('ISBN').to_dict(orient='index')
+    books_map = {}
+    for isbn, details in raw_books_map.items():
+        books_map[isbn] = {
+            'Title': details.get('Book-Title', 'Unknown Title'), # Assuming 'Book-Title' from typical dataset
+            'Author': details.get('Book-Author', 'Unknown Author') # Assuming 'Book-Author'
+        }
 
     results = []
     for isbn in pick_isbns:
-        info = books_map.get(isbn, {})
+        info = books_map.get(isbn, {}) # Get info from our processed map
         results.append({
             'Book_ID': isbn,
             'Book_Title': info.get('Title', 'Unknown Title'),
-            'Author': info.get('Author', 'Unknown Author'),
-            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}',
+            'Author': info.get('Author', 'Unknown Author'), # Add Author
+            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}', # Already present
         })
     return results
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import PopularGrid from "./components/PopularGrid";
 import BookCard from "./components/BookCard";
+import Skeletoncard from "./components/Skeletoncard";
 
 type Rec = {
   Book_ID: string;
@@ -71,7 +72,18 @@ export default function Home() {
 
       {error && <p className="text-red-500 mt-4">{error}</p>}
 
-      {recs.length > 0 && (
+      {loading && recs.length === 0 && (
+        <section className="mt-8">
+          <h2 className="text-2xl font-semibold mb-4">You Might Also Like:</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeletoncard key={`rec-skeleton-${i}`} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!loading && recs.length > 0 && (
         <section
           data-testid="recommendations-list"
           className="mt-8"

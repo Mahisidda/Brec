@@ -11,7 +11,7 @@ def load_sparse_matrix(ratings_path=None, books_path=None,
     """
     Builds a CSR matrix from Ratings.csv and Books.csv after filtering.
     Returns:
-        matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_title
+        matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_details
     """
     ratings_path = ratings_path or os.path.join(DATA_DIR, 'Ratings.csv')
     books_path = books_path or os.path.join(DATA_DIR, 'Books.csv')
@@ -40,11 +40,18 @@ def load_sparse_matrix(ratings_path=None, books_path=None,
         shape=(len(user_map), len(book_map))
     )
 
-    # Load book titles
-    books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', engine='python')
-    isbn_to_title = dict(zip(books['ISBN'], books['Title']))
+    # Load book details (title and author)
+    books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', on_bad_lines='skip', engine='python')
+    # Use 'Book-Title' and 'Book-Author' as per typical dataset conventions, handle if not present
+    isbn_to_details = {}
+    for _, row in books.iterrows():
+        isbn = row['ISBN']
+        isbn_to_details[isbn] = {
+            'Title': row.get('Book-Title', 'Unknown Title'),
+            'Author': row.get('Book-Author', 'Unknown Author')
+        }
 
-    return matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_title
+    return matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_details
 
 
 def build_faiss_index(matrix):
