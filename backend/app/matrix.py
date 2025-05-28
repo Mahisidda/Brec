@@ -47,8 +47,8 @@ def load_sparse_matrix(ratings_path=None, books_path=None,
     for _, row in books.iterrows():
         isbn = row['ISBN']
         isbn_to_details[isbn] = {
-            'Title': row.get('Book-Title', 'Unknown Title'),
-            'Author': row.get('Book-Author', 'Unknown Author')
+            'Title': row.get('Title', 'Unknown Title'),
+            'Author': row.get('Author', 'Unknown Author')
         }
 
     return matrix, user_map, book_map, rev_user_map, rev_book_map, isbn_to_details

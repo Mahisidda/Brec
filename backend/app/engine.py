@@ -303,8 +303,8 @@ def get_popular_books(limit: int = 20, context=None):
     books_map = {}
     for isbn, details in raw_books_map.items():
         books_map[isbn] = {
-            'Title': details.get('Book-Title', 'Unknown Title'), # Assuming 'Book-Title' from typical dataset
-            'Author': details.get('Book-Author', 'Unknown Author') # Assuming 'Book-Author'
+            'Title': details.get('Title', 'Unknown Title'), # Assuming 'Book-Title' from typical dataset
+            'Author': details.get('Author', 'Unknown Author') # Assuming 'Book-Author'
         }
 
     results = []
