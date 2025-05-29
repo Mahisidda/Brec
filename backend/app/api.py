@@ -65,7 +65,7 @@ def popular_books():
     books = get_popular_books(limit=limit, context=ctx)
     return jsonify(books)
 
-@api.route("/debug_env")
+@api_blueprint.route("/debug_env")
 def env():
     return {
         "files": os.listdir("/app/data"),
