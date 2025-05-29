@@ -281,41 +281,85 @@ def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold
 def get_popular_books(limit: int = 20, context=None):
     """Returns top-N popular books by rating count, with Redis caching."""
     cache_key = "popular_books_top100"
+    print(f"[POPULAR DEBUG] Attempting to get popular books. Cache key: {cache_key}") # DEBUG
     cached = redis_client.get(cache_key)
+    
     if cached:
+        print(f"[POPULAR DEBUG] Found cached popular_books_top100. Length: {len(json.loads(cached))}") # DEBUG
         top_isbns = json.loads(cached)
     else:
+        print(f"[POPULAR DEBUG] No cache for popular_books_top100. Calculating...") # DEBUG
         ratings_path = os.path.join(DATA_DIR, 'Ratings.csv')
-        df_ratings = pd.read_csv(ratings_path, delimiter=';')
-        top_isbns = df_ratings[df_ratings['Rating'] > 0]['ISBN'].value_counts().head(100).index.tolist()
-        redis_client.setex(cache_key, 600, json.dumps(top_isbns))
+        print(f"[POPULAR DEBUG] Reading ratings from: {ratings_path}") # DEBUG
+        try:
+            df_ratings = pd.read_csv(ratings_path, delimiter=';')
+            print(f"[POPULAR DEBUG] df_ratings loaded. Shape: {df_ratings.shape}") # DEBUG
+            
+            df_positive_ratings = df_ratings[df_ratings['Rating'] > 0]
+            print(f"[POPULAR DEBUG] df_positive_ratings shape: {df_positive_ratings.shape}") # DEBUG
 
-    random.shuffle(top_isbns)
-    pick_isbns = top_isbns[:limit]
+            if df_positive_ratings.empty:
+                print("[POPULAR DEBUG] No positive ratings found in Ratings.csv!") # DEBUG
+                top_isbns = []
+            else:
+                value_counts_series = df_positive_ratings['ISBN'].value_counts()
+                print(f"[POPULAR DEBUG] ISBN value counts head: {value_counts_series.head().to_dict()}") # DEBUG
+                top_isbns = value_counts_series.head(100).index.tolist()
+            
+            print(f"[POPULAR DEBUG] Calculated top_isbns (first 5): {top_isbns[:5]}") # DEBUG
+            redis_client.setex(cache_key, 600, json.dumps(top_isbns))
+            print(f"[POPULAR DEBUG] Set '{cache_key}' in Redis with {len(top_isbns)} ISBNs.") # DEBUG
+        except Exception as e:
+            print(f"[POPULAR DEBUG] ERROR calculating popular books: {e}") # DEBUG
+            top_isbns = [] # Ensure it's an empty list on error
 
+    if not top_isbns:
+        print("[POPULAR DEBUG] top_isbns list is empty before reading Books.csv.") # DEBUG
+        return []
+
+    # ... (rest of your function to read Books.csv and format results) ...
+    # Add similar print statements around Books.csv reading
     books_path = os.path.join(DATA_DIR, 'Books.csv')
-    df_books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', on_bad_lines='skip')
-    df_books_unique = df_books.drop_duplicates(subset='ISBN', keep='first')
-    # Ensure 'Book-Author' is used if that's the actual column name, otherwise 'Author'
-    # Creating a robust books_map that handles missing columns gracefully
-    
-    raw_books_map = df_books_unique.set_index('ISBN').to_dict(orient='index')
-    books_map = {}
-    for isbn, details in raw_books_map.items():
-        books_map[isbn] = {
-            'Title': details.get('Title', 'Unknown Title'), # Assuming 'Book-Title' from typical dataset
-            'Author': details.get('Author', 'Unknown Author') # Assuming 'Book-Author'
-        }
+    print(f"[POPULAR DEBUG] Reading books from: {books_path}") # DEBUG
+    try:
+        df_books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', on_bad_lines='skip')
+        print(f"[POPULAR DEBUG] df_books loaded. Shape: {df_books.shape}") # DEBUG
+        # Assuming the rest of the original function continues here for processing df_books
+        # For the edit, I'll just make sure this try-except block is closed and add the final print
+        df_books_unique = df_books.drop_duplicates(subset='ISBN', keep='first')
+        raw_books_map = df_books_unique.set_index('ISBN').to_dict(orient='index')
+        books_map = {}
+        for isbn, details in raw_books_map.items():
+            books_map[isbn] = {
+                'Title': details.get('Title', 'Unknown Title'),
+                'Author': details.get('Author', 'Unknown Author')
+            }
 
-    results = []
-    for isbn in pick_isbns:
-        info = books_map.get(isbn, {}) # Get info from our processed map
-        results.append({
-            'Book_ID': isbn,
-            'Book_Title': info.get('Title', 'Unknown Title'),
-            'Author': info.get('Author', 'Unknown Author'), # Add Author
-            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}', # Already present
-        })
+        results = []
+        # The original logic for pick_isbns needs to be here
+        # For now, I'll assume pick_isbns is defined based on top_isbns and limit
+        if 'pick_isbns' not in locals() and 'top_isbns' in locals(): # Ensure pick_isbns exists
+             random.shuffle(top_isbns)
+             pick_isbns = top_isbns[:limit]
+        elif 'pick_isbns' not in locals():
+            pick_isbns = []
+
+
+        for isbn in pick_isbns:
+            info = books_map.get(isbn, {}) 
+            results.append({
+                'Book_ID': isbn,
+                'Book_Title': info.get('Title', 'Unknown Title'),
+                'Author': info.get('Author', 'Unknown Author'), 
+                'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}', 
+            })
+
+    except Exception as e:
+        print(f"[POPULAR DEBUG] ERROR reading or processing Books.csv: {e}") # DEBUG
+        return [] # Or handle error appropriately
+    
+    # ...
+    print(f"[POPULAR DEBUG] Returning {len(results)} popular books.") # DEBUG
     return results
 
 
