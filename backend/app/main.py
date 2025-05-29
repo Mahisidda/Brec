@@ -6,6 +6,7 @@ from app.matrix import build_faiss_index  # ✅ import this
 import os
 
 app = Flask(__name__)
+app.register_blueprint(api_blueprint, url_prefix='/api')
 
 # configure origins via env for dev vs. prod
 allowed = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://192.168.0.202:3000").split(",")
