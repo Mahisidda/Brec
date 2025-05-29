@@ -64,3 +64,10 @@ def popular_books():
     ctx = current_app.config['MODEL_CONTEXT']
     books = get_popular_books(limit=limit, context=ctx)
     return jsonify(books)
+
+@api.route("/debug_env")
+def env():
+    return {
+        "files": os.listdir("/app/data"),
+        "exists_books": os.path.exists("/app/data/Books.csv")
+    }

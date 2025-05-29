@@ -7,11 +7,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+
 # Copy code & data
 COPY app ./app
 COPY data ./data
 
-
+#Log files after they are copied
+RUN echo "=== Listing /app/data ===" && ls -l /app/data
 
 EXPOSE 8000
 
