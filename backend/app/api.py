@@ -61,9 +61,18 @@ def home():
 
 @api_blueprint.route('/popular_books', methods=['GET'])
 def popular_books():
+    print("[API DEBUG] /popular_books route hit!")
     limit = int(request.args.get('limit', 20))
-    ctx = current_app.config['MODEL_CONTEXT']
+    print(f"[API DEBUG] Requested limit: {limit}")
+    
+    ctx = current_app.config.get('MODEL_CONTEXT')
+    if ctx is None:
+        print("[API DEBUG] ERROR: MODEL_CONTEXT not found in app.config!")
+        return jsonify({"error": "Server configuration error", "message": "Model context not available"}), 500
+    
+    print(f"[API DEBUG] Calling get_popular_books with limit: {limit}")
     books = get_popular_books(limit=limit, context=ctx)
+    print(f"[API DEBUG] get_popular_books returned: {len(books)} books.")
     return jsonify(books)
 
 @api_blueprint.route("/debug_env")
