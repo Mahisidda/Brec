@@ -15,8 +15,11 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 def load_all_data():
     """Loads matrix, mappings, and title lookup once."""
+    print("[DEBUG] engine.py: load_all_data() called.")
     ratings_csv = os.path.join(DATA_DIR, 'Ratings.csv')
     books_csv = os.path.join(DATA_DIR, 'Books.csv')
+    print(f"[DEBUG] engine.py: load_all_data() - ratings_csv path: {ratings_csv}")
+    print(f"[DEBUG] engine.py: load_all_data() - books_csv path: {books_csv}")
     return load_sparse_matrix(ratings_csv, books_csv)
 
 
@@ -114,66 +117,6 @@ def recommend_for_user(user_id, context, k=10, top_n=3, similarity_threshold=0.1
     return results
 
 
-#def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
-    """Pseudo-user collaborative filtering using liked books."""
-    cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
-    cached = redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached.decode("utf-8"))
-
-    matrix = context['matrix']
-    book_map = context['book_map']
-    rev_book_map = context['rev_book_map']
-    isbn_to_title = context['isbn_to_title']
-
-    n_books = matrix.shape[1]
-    liked_idxs = [book_map[isbn] for isbn in liked_books if isbn in book_map]
-    if not liked_idxs:
-        return []
-
-    pseudo = np.zeros((1, n_books))
-    for idx in liked_idxs:
-        pseudo[0, idx] = 10.0
-
-    sim_vec = cosine_similarity(pseudo, matrix).flatten()
-    eligible = np.where(sim_vec > similarity_threshold)[0]
-    if len(eligible) > k:
-        neighbors = eligible[np.argpartition(sim_vec[eligible], -k)[-k:]]
-        neighbors = neighbors[np.argsort(sim_vec[neighbors])[::-1]]
-    else:
-        neighbors = eligible
-
-    if len(neighbors) == 0:
-        return []
-
-    nonzeros_cache = {n: matrix[n].nonzero()[1] for n in neighbors}
-    candidate_books = set().union(*nonzeros_cache.values()) - set(liked_idxs)
-
-    if not candidate_books:
-        return []
-
-    candidate_idxs = list(candidate_books)
-    ratings_submatrix = matrix[:, candidate_idxs]
-    numerators = sim_vec @ ratings_submatrix
-    denominators = np.array([
-        np.dot(sim_vec, (ratings_submatrix[:, i] > 0).astype(float))
-        for i in range(ratings_submatrix.shape[1])
-    ])
-
-    preds = {}
-    for i, b in enumerate(candidate_idxs):
-        if denominators[i] > 0:
-            preds[b] = numerators[i] / denominators[i]
-
-    top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
-    result = [{
-        'Book_ID': rev_book_map[b],
-        'Book_Title': isbn_to_title.get(rev_book_map[b], "Unknown Title"),
-        'Recommendation_Score': float(score)
-    } for b, score in top]
-
-    redis_client.setex(cache_key, 600, json.dumps(result))
-    return result
 
 def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
     """FAISS-accelerated pseudo-user collaborative filtering."""
@@ -281,85 +224,124 @@ def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold
 def get_popular_books(limit: int = 20, context=None):
     """Returns top-N popular books by rating count, with Redis caching."""
     cache_key = "popular_books_top100"
-    print(f"[POPULAR DEBUG] Attempting to get popular books. Cache key: {cache_key}") # DEBUG
-    cached = redis_client.get(cache_key)
+    print(f"[POPULAR DEBUG] get_popular_books called with limit: {limit}. Cache key: {cache_key}")
     
-    if cached:
-        print(f"[POPULAR DEBUG] Found cached popular_books_top100. Length: {len(json.loads(cached))}") # DEBUG
-        top_isbns = json.loads(cached)
+    # Ensure redis_client is available
+    if not redis_client:
+        print("[POPULAR DEBUG] Redis client is not available/configured!")
+        # Decide handling: proceed without cache or return error
+        # For now, let's assume it should error or be handled if critical
+        # This might indicate an issue with redis_client initialization
+        # return [] # Or handle as an error
+
+    cached_data = None
+    if redis_client: # ADDED check before using redis_client
+        try:
+            cached_data = redis_client.get(cache_key)
+        except Exception as e:
+            print(f"[POPULAR DEBUG] ERROR accessing Redis for get operation: {e}")
+            cached_data = None # Ensure it's None on error
+
+    top_isbns = [] # Initialize top_isbns
+
+    if cached_data:
+        try:
+            top_isbns = json.loads(cached_data)
+            print(f"[POPULAR DEBUG] Found and loaded cached popular_books_top100. Count: {len(top_isbns)}. First 5: {top_isbns[:5]}")
+        except json.JSONDecodeError as e:
+            print(f"[POPULAR DEBUG] ERROR decoding JSON from Redis cache: {e}. Cache content: {cached_data}")
+            top_isbns = [] # Reset on error
     else:
-        print(f"[POPULAR DEBUG] No cache for popular_books_top100. Calculating...") # DEBUG
+        print(f"[POPULAR DEBUG] No cache for popular_books_top100 or Redis error. Calculating...")
         ratings_path = os.path.join(DATA_DIR, 'Ratings.csv')
-        print(f"[POPULAR DEBUG] Reading ratings from: {ratings_path}") # DEBUG
+        print(f"[POPULAR DEBUG] Reading ratings from: {ratings_path}")
+        if not os.path.exists(ratings_path): # ADDED file existence check
+            print(f"[POPULAR DEBUG] ERROR: Ratings.csv does not exist at {ratings_path}")
+            return []
+
         try:
             df_ratings = pd.read_csv(ratings_path, delimiter=';')
-            print(f"[POPULAR DEBUG] df_ratings loaded. Shape: {df_ratings.shape}") # DEBUG
+            print(f"[POPULAR DEBUG] df_ratings loaded. Shape: {df_ratings.shape}. Head:\n{df_ratings.head()}")
             
             df_positive_ratings = df_ratings[df_ratings['Rating'] > 0]
-            print(f"[POPULAR DEBUG] df_positive_ratings shape: {df_positive_ratings.shape}") # DEBUG
+            print(f"[POPULAR DEBUG] df_positive_ratings shape: {df_positive_ratings.shape}. Head:\n{df_positive_ratings.head()}")
 
             if df_positive_ratings.empty:
-                print("[POPULAR DEBUG] No positive ratings found in Ratings.csv!") # DEBUG
+                print("[POPULAR DEBUG] No positive ratings found in Ratings.csv!")
                 top_isbns = []
             else:
                 value_counts_series = df_positive_ratings['ISBN'].value_counts()
-                print(f"[POPULAR DEBUG] ISBN value counts head: {value_counts_series.head().to_dict()}") # DEBUG
+                print(f"[POPULAR DEBUG] ISBN value counts (top 5): {value_counts_series.head().to_dict()}")
                 top_isbns = value_counts_series.head(100).index.tolist()
             
-            print(f"[POPULAR DEBUG] Calculated top_isbns (first 5): {top_isbns[:5]}") # DEBUG
-            redis_client.setex(cache_key, 600, json.dumps(top_isbns))
-            print(f"[POPULAR DEBUG] Set '{cache_key}' in Redis with {len(top_isbns)} ISBNs.") # DEBUG
+            print(f"[POPULAR DEBUG] Calculated top_isbns from Ratings.csv (count: {len(top_isbns)}, first 5): {top_isbns[:5]}")
+            if redis_client: # ADDED check
+                try:
+                    redis_client.setex(cache_key, 600, json.dumps(top_isbns))
+                    print(f"[POPULAR DEBUG] Set '{cache_key}' in Redis with {len(top_isbns)} ISBNs.")
+                except Exception as e:
+                    print(f"[POPULAR DEBUG] ERROR setting cache in Redis: {e}")
         except Exception as e:
-            print(f"[POPULAR DEBUG] ERROR calculating popular books: {e}") # DEBUG
-            top_isbns = [] # Ensure it's an empty list on error
+            print(f"[POPULAR DEBUG] ERROR calculating popular books from Ratings.csv: {e}")
+            top_isbns = [] 
 
     if not top_isbns:
-        print("[POPULAR DEBUG] top_isbns list is empty before reading Books.csv.") # DEBUG
+        print("[POPULAR DEBUG] top_isbns list is empty after cache check and Ratings.csv processing. Returning empty list.")
         return []
 
-    # ... (rest of your function to read Books.csv and format results) ...
-    # Add similar print statements around Books.csv reading
     books_path = os.path.join(DATA_DIR, 'Books.csv')
-    print(f"[POPULAR DEBUG] Reading books from: {books_path}") # DEBUG
+    print(f"[POPULAR DEBUG] Reading books from: {books_path}")
+    if not os.path.exists(books_path): # ADDED file existence check
+        print(f"[POPULAR DEBUG] ERROR: Books.csv does not exist at {books_path}")
+        return []
+
+    results = []
     try:
         df_books = pd.read_csv(books_path, delimiter=';', encoding='latin-1', on_bad_lines='skip')
-        print(f"[POPULAR DEBUG] df_books loaded. Shape: {df_books.shape}") # DEBUG
-        # Assuming the rest of the original function continues here for processing df_books
-        # For the edit, I'll just make sure this try-except block is closed and add the final print
+        print(f"[POPULAR DEBUG] df_books loaded. Shape: {df_books.shape}. Head:\n{df_books.head()}")
+        
         df_books_unique = df_books.drop_duplicates(subset='ISBN', keep='first')
-        raw_books_map = df_books_unique.set_index('ISBN').to_dict(orient='index')
-        books_map = {}
-        for isbn, details in raw_books_map.items():
-            books_map[isbn] = {
-                'Title': details.get('Title', 'Unknown Title'),
-                'Author': details.get('Author', 'Unknown Author')
+        print(f"[POPULAR DEBUG] df_books_unique shape after dropping duplicates on ISBN: {df_books_unique.shape}")
+
+        # Create a direct mapping from ISBN to its details for faster lookup
+        books_details_map = {}
+        for _, row in df_books_unique.iterrows(): # Create a more robust map
+            books_details_map[row['ISBN']] = {
+                'Title': row.get('Title', 'Unknown Title'),
+                'Author': row.get('Author', 'Unknown Author')
             }
+        print(f"[POPULAR DEBUG] Created books_details_map with {len(books_details_map)} entries.")
 
-        results = []
-        # The original logic for pick_isbns needs to be here
-        # For now, I'll assume pick_isbns is defined based on top_isbns and limit
-        if 'pick_isbns' not in locals() and 'top_isbns' in locals(): # Ensure pick_isbns exists
-             random.shuffle(top_isbns)
-             pick_isbns = top_isbns[:limit]
-        elif 'pick_isbns' not in locals():
-            pick_isbns = []
-
+        pick_isbns = []
+        if top_isbns: # Ensure top_isbns is not empty
+            # Shuffle a copy if you intend to keep original top_isbns order for caching
+            shuffled_top_isbns = random.sample(top_isbns, len(top_isbns))
+            pick_isbns = shuffled_top_isbns[:limit]
+        print(f"[POPULAR DEBUG] Picked {len(pick_isbns)} ISBNs for results (limit was {limit}). First 5: {pick_isbns[:5]}")
 
         for isbn in pick_isbns:
-            info = books_map.get(isbn, {}) 
-            results.append({
-                'Book_ID': isbn,
-                'Book_Title': info.get('Title', 'Unknown Title'),
-                'Author': info.get('Author', 'Unknown Author'), 
-                'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}', 
-            })
-
-    except Exception as e:
-        print(f"[POPULAR DEBUG] ERROR reading or processing Books.csv: {e}") # DEBUG
-        return [] # Or handle error appropriately
+            info = books_details_map.get(isbn) # Use the new map
+            if info:
+                results.append({
+                    'Book_ID': isbn,
+                    'Book_Title': info.get('Title', 'Unknown Title'),
+                    'Author': info.get('Author', 'Unknown Author'), 
+                    'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}', 
+                })
+            else:
+                print(f"[POPULAR DEBUG] ISBN {isbn} from pick_isbns not found in books_details_map.")
     
-    # ...
-    print(f"[POPULAR DEBUG] Returning {len(results)} popular books.") # DEBUG
+    except FileNotFoundErrorError as e: # Specific error for file not found
+        print(f"[POPULAR DEBUG] ERROR (FileNotFoundError) reading or processing Books.csv: {e}")
+        return []
+    except pd.errors.EmptyDataError as e: # Specific error for empty CSV
+        print(f"[POPULAR DEBUG] ERROR (EmptyDataError) reading Books.csv - file is empty or all lines are bad: {e}")
+        return []
+    except Exception as e:
+        print(f"[POPULAR DEBUG] ERROR reading or processing Books.csv: {e}")
+        return [] 
+    
+    print(f"[POPULAR DEBUG] Returning {len(results)} popular books. First 3: {results[:3]}")
     return results
 
 
