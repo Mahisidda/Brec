@@ -18,12 +18,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL_FROM_BUILD_ARG=http://zwgwgsso0wo0w84ok8kkc48w.116.202.160.146.sslip.io
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL_FRONTEND}
+      no_cache: true
     platform: linux/amd64
     ports:
       - "3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://zwgwgsso0wo0w84ok8kkc48w.116.202.160.146.sslip.io
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL_FRONTEND}
     depends_on:
       - backend
     restart: unless-stopped
