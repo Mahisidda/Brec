@@ -7,14 +7,13 @@ import os
 
 app = Flask(__name__)
 
-
 # configure origins via env for dev vs. prod
 allowed = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://192.168.0.202:3000").split(",")
 
-# apply only to your API blueprint
+# Use the environment variable instead of hardcoded localhost
 CORS(
     app,
-    origins=["http://localhost:3000"],
+    origins=allowed,  # <-- Changed from hardcoded list to use environment variable
     supports_credentials=True,
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"]
