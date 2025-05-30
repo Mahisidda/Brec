@@ -8,6 +8,8 @@ RUN npm install
 
 COPY . .
 
+RUN echo "Docker Build Step: NEXT_PUBLIC_API_URL is set to: ${NEXT_PUBLIC_API_URL}"
+
 # Build the Next.js production files
 RUN npm run build
 
