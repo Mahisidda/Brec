@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 
 # configure origins via env for dev vs. prod
-allowed = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://192.168.0.202:3000").split(",")
+allowed = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://192.168.0.202:3000,https://brec.mahisidda.com").split(",")
 
 # Use the environment variable instead of hardcoded localhost
 CORS(
