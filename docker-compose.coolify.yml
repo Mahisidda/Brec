@@ -21,8 +21,7 @@ services:
     ports:
       - "3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - REDIS_HOST=redis
+      - NEXT_PUBLIC_API_URL=http://zwgwgsso0wo0w84ok8kkc48w.116.202.160.146.sslip.io
     depends_on:
       - backend
     restart: unless-stopped
