@@ -34,7 +34,7 @@ export default function Home() {
     setLoading(true);
     setRecs([]);
     try {
-      const res = await fetch(`${API_BASE}/recommend_by_books`, {
+      const res = await fetch(`${API_BASE}/api/recommend_by_books`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liked_books: selected }),

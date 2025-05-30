@@ -33,7 +33,7 @@ export default function PopularGrid({ limit = 20, selected, onToggle }: Props) {
           throw new Error("Environment variable NEXT_PUBLIC_API_URL is not defined");
         }
 
-        const res = await fetch(`${API_BASE}/popular_books?limit=${limit}`);
+        const res = await fetch(`${API_BASE}/api/popular_books?limit=${limit}`);
         if (!res.ok) {
           throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
         }
