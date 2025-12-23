@@ -23,7 +23,7 @@ function shuffleArray<T>(arr: T[]): T[] {
 export default function PopularGrid({ limit = 20, selected, onToggle }: Props) {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL|| "https://api.mahisidda.com";
 
   useEffect(() => {
     async function fetchPopular() {
