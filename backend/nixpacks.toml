@@ -1,8 +1,11 @@
 providers = ["python"]
 python_version = "3.10"
 
+[phases.setup]
+cmds = ["python -m venv /opt/venv"]
+
 [phases.install]
-cmds = ["pip install --no-cache-dir -r requirements.txt"]
+cmds = ["/opt/venv/bin/pip install --no-cache-dir -r requirements.txt"]
 
 [start]
 cmd = "gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT app.main:app"
