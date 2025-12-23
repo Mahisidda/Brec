@@ -121,19 +121,9 @@ def recommend_for_user(user_id, context, k=10, top_n=3, similarity_threshold=0.1
 def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
     """FAISS-accelerated pseudo-user collaborative filtering."""
     cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
-    cached = None
-    # Redis is optional; guard all access so we don't crash if it's unavailable
-    if redis_client:
-        try:
-            cached = redis_client.get(cache_key)
-        except Exception as e:
-            print(f"[RECS DEBUG] Error reading from Redis for key {cache_key}: {e}")
-            cached = None
+    cached = redis_client.get(cache_key)
     if cached:
-        try:
-            return json.loads(cached.decode("utf-8"))
-        except Exception as e:
-            print(f"[RECS DEBUG] Error decoding cached recommendations for key {cache_key}: {e}")
+        return json.loads(cached.decode("utf-8"))
 
     matrix = context['matrix']
     book_map = context['book_map']
@@ -225,10 +215,7 @@ def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold
         })
 
     if redis_client:
-        try:
-            redis_client.setex(cache_key, 600, json.dumps(result))
-        except Exception as e:
-            print(f"[RECS DEBUG] Error writing recommendations to Redis for key {cache_key}: {e}")
+        redis_client.setex(cache_key, 600, json.dumps(result))
     return result
 
 
