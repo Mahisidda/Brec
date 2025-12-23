@@ -8,8 +8,9 @@ cmds = ["python -m venv /opt/venv"]
 cmds = ["/opt/venv/bin/pip install --no-cache-dir -r requirements.txt"]
 
 [start]
-cmd = "gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT app.main:app"
+cmd = "/opt/venv/bin/gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT app.main:app"
 
 [variables]
 PYTHONUNBUFFERED = "1"
+PATH = "/opt/venv/bin:$PATH"
 
