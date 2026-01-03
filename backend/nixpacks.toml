@@ -5,7 +5,10 @@ python_version = "3.10"
 cmds = ["python -m venv /opt/venv"]
 
 [phases.install]
-cmds = ["/opt/venv/bin/pip install --no-cache-dir -r requirements.txt"]
+cmds = [
+    "/opt/venv/bin/pip install --upgrade pip",
+    "/opt/venv/bin/pip install --no-cache-dir -r requirements.txt"
+]
 
 [phases.build]
 cmds = ["echo 'Verifying data files...' && ls -la data/ || echo 'WARNING: data directory not found'"]
