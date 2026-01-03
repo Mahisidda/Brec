@@ -14,9 +14,10 @@ cmds = [
 cmds = ["echo 'Verifying data files...' && ls -la data/ || echo 'WARNING: data directory not found'"]
 
 [start]
-cmd = "/opt/venv/bin/gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT app.main:app"
+cmd = "/opt/venv/bin/gunicorn -w 1 --threads 4 -b 0.0.0.0:${PORT} app.main:app"
 
 [variables]
 PYTHONUNBUFFERED = "1"
+PORT = "8000"
 PATH = "/opt/venv/bin:$PATH"
 
