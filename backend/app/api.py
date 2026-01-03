@@ -38,11 +38,29 @@ def recommend_user():
 
 @api_blueprint.route('/recommend_by_books', methods=['POST'])
 def recommend_books_route():
-    liked = request.json.get('liked_books', [])
-    ctx = current_app.config['MODEL_CONTEXT']
-    recs = recommend_by_books(liked, ctx)
-    print(recs)
-    return jsonify(recs)
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+        
+        if request.json is None:
+            return jsonify({"error": "Request body is empty"}), 400
+        
+        liked = request.json.get('liked_books', [])
+        if not isinstance(liked, list):
+            return jsonify({"error": "liked_books must be a list"}), 400
+        
+        ctx = current_app.config.get('MODEL_CONTEXT')
+        if ctx is None:
+            return jsonify({"error": "Server configuration error", "message": "Model context not available"}), 500
+        
+        recs = recommend_by_books(liked, ctx)
+        print(recs)
+        return jsonify(recs)
+    except Exception as e:
+        print(f"[API ERROR] Error in recommend_books_route: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({"error": "Internal server error", "message": str(e)}), 500
 
 @api_blueprint.route('/', methods=['GET'])
 def home():

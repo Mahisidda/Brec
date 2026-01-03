@@ -117,19 +117,101 @@ def recommend_for_user(user_id, context, k=10, top_n=3, similarity_threshold=0.1
     return results
 
 
+def recommend_by_books_fallback(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
+    """Fallback recommendation method using cosine similarity when FAISS is not available."""
+    matrix = context['matrix']
+    book_map = context['book_map']
+    rev_book_map = context['rev_book_map']
+    isbn_to_details = context['isbn_to_details']
+    
+    n_books = matrix.shape[1]
+    liked_idxs = [book_map[isbn] for isbn in liked_books if isbn in book_map]
+    if not liked_idxs:
+        return []
+    
+    # Build pseudo-user vector
+    pseudo = np.zeros((1, n_books), dtype=np.float32)
+    for idx in liked_idxs:
+        pseudo[0, idx] = 10.0
+    
+    # Normalize pseudo-user vector
+    pseudo_norm = pseudo / (np.linalg.norm(pseudo) + 1e-10)
+    
+    # Compute cosine similarity with all users
+    sim_vec = cosine_similarity(pseudo_norm, matrix).flatten()
+    eligible = np.where(sim_vec > similarity_threshold)[0]
+    
+    if len(eligible) > k:
+        neighbors = eligible[np.argpartition(sim_vec[eligible], -k)[-k:]]
+        neighbors = neighbors[np.argsort(sim_vec[neighbors])[::-1]]
+    else:
+        neighbors = eligible
+    
+    if len(neighbors) == 0:
+        return []
+    
+    # Get books rated by neighbors, excluding liked books
+    nonzeros_cache = {n: matrix[n].nonzero()[1] for n in neighbors}
+    candidate_books = set().union(*nonzeros_cache.values()) - set(liked_idxs)
+    if not candidate_books:
+        return []
+    
+    candidate_idxs = list(candidate_books)
+    ratings_submatrix = matrix[:, candidate_idxs]
+    numerators = sim_vec @ ratings_submatrix
+    denominators = np.array([
+        np.dot(sim_vec, (ratings_submatrix[:, i] > 0).astype(float))
+        for i in range(ratings_submatrix.shape[1])
+    ])
+    
+    preds = {}
+    for i, b in enumerate(candidate_idxs):
+        if denominators[i] > 0:
+            preds[b] = numerators[i] / denominators[i]
+    
+    top = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    result = []
+    for book_original_idx, score in top:
+        isbn = rev_book_map[book_original_idx]
+        details = isbn_to_details.get(isbn, {})
+        result.append({
+            'Book_ID': isbn,
+            'Book_Title': details.get('Title', 'Unknown Title'),
+            'Author': details.get('Author', 'Unknown Author'),
+            'Recommendation_Score': float(score),
+            'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}'
+        })
+    
+    return result
+
 
 def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold=0.1):
     """FAISS-accelerated pseudo-user collaborative filtering."""
-    cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
-    cached = redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached.decode("utf-8"))
+    # Check Redis cache if available
+    if redis_client is not None:
+        try:
+            cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
+            cached = redis_client.get(cache_key)
+            if cached:
+                # Handle both string and bytes responses
+                if isinstance(cached, bytes):
+                    return json.loads(cached.decode("utf-8"))
+                else:
+                    return json.loads(cached)
+        except Exception as e:
+            print(f"[RECOMMEND DEBUG] Redis cache error (non-fatal): {e}")
 
     matrix = context['matrix']
     book_map = context['book_map']
     rev_book_map = context['rev_book_map']
     isbn_to_details = context['isbn_to_details']
-    faiss_index = context['faiss_index']
+    faiss_index = context.get('faiss_index')
+
+    # Check if FAISS index is available
+    if faiss_index is None:
+        print("[RECOMMEND DEBUG] FAISS index not available, falling back to cosine similarity")
+        # Fallback to cosine similarity method without FAISS
+        return recommend_by_books_fallback(liked_books, context, k=k, top_n=top_n, similarity_threshold=similarity_threshold)
 
     n_books = matrix.shape[1]
     liked_idxs = [book_map[isbn] for isbn in liked_books if isbn in book_map]
@@ -214,8 +296,13 @@ def recommend_by_books(liked_books, context, k=10, top_n=5, similarity_threshold
             'Goodreads_URL': f'https://www.goodreads.com/search?q={isbn}'
         })
 
-    if redis_client:
-        redis_client.setex(cache_key, 600, json.dumps(result))
+    # Cache result if Redis is available
+    if redis_client is not None:
+        try:
+            cache_key = cache_key_for_recommendation(liked_books, top_n, k, similarity_threshold)
+            redis_client.setex(cache_key, 600, json.dumps(result))
+        except Exception as e:
+            print(f"[RECOMMEND DEBUG] Redis cache set error (non-fatal): {e}")
     return result
 
 
