@@ -15,13 +15,17 @@ api_blueprint = Blueprint('api', __name__)
 
 @api_blueprint.route('/random_user', methods=['GET'])
 def random_user():
-    user_map = current_app.config['MODEL_CONTEXT']['user_map']
-    return jsonify({"user_id": get_random_user_id(user_map)})
+    # get_random_user_id doesn't need user_map anymore - it queries Supabase directly
+    user_id = get_random_user_id()
+    return jsonify({"user_id": user_id})
 
 @api_blueprint.route('/rated_books', methods=['GET'])
 def rated_books():
     user_id = request.args.get('user_id', type=int)
-    ctx = current_app.config['MODEL_CONTEXT']
+    if not user_id:
+        return jsonify({"error": "user_id parameter is required"}), 400
+    
+    ctx = current_app.config.get('MODEL_CONTEXT')
     books = get_user_rated_books(user_id, ctx)
     if books is None:
         return jsonify({"error": "User not found"}), 404
@@ -30,7 +34,10 @@ def rated_books():
 @api_blueprint.route('/recommend', methods=['GET'])
 def recommend_user():
     user_id = request.args.get('user_id', type=int)
-    ctx = current_app.config['MODEL_CONTEXT']
+    if not user_id:
+        return jsonify({"error": "user_id parameter is required"}), 400
+    
+    ctx = current_app.config.get('MODEL_CONTEXT')
     recs = recommend_for_user(user_id, ctx)
     if recs is None:
         return jsonify({"error": "User not found"}), 404
