@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
@@ -22,13 +23,20 @@ print("✅ Connected to Supabase successfully.")
 # --- API REQUIRED FUNCTIONS ---
 
 def get_popular_books(limit=20, context=None):
-    """Fetches books from the Supabase 'books' table."""
+    """Fetches books from the Supabase 'books' table with randomization for variety."""
     if not supabase: return []
     try:
-        # We use the column names we verified in your Books.csv
-        res = supabase.table("books").select("isbn, title, author, year, publisher").limit(limit).execute()
+        # Query more books than needed, then randomly select from them
+        # This ensures variety instead of always returning the same top N books
+        pool_size = max(limit * 5, 100)  # Query 5x the limit, minimum 100 books
+        
+        res = supabase.table("books").select("isbn, title, author, year, publisher").limit(pool_size).execute()
+        
+        if not res.data:
+            return []
+        
         # Map to frontend-expected field names
-        return [
+        all_books = [
             {
                 "Book_ID": book.get("isbn", ""),
                 "Book_Title": book.get("title", "Unknown Title"),
@@ -36,8 +44,12 @@ def get_popular_books(limit=20, context=None):
                 "year": book.get("year"),
                 "publisher": book.get("publisher")
             }
-            for book in (res.data or [])
+            for book in res.data
         ]
+        
+        # Shuffle and return the requested limit
+        random.shuffle(all_books)
+        return all_books[:limit]
     except Exception as e:
         print(f"Error in get_popular_books: {e}")
         return []
@@ -70,8 +82,12 @@ def get_random_user_id(context=None):
     """Returns a random user_id from the database."""
     if not supabase: return 0
     try:
-        res = supabase.table("user_vectors").select("user_id").limit(1).execute()
-        return res.data[0]['user_id'] if res.data else 0
+        # Get a larger pool and randomly select one
+        res = supabase.table("user_vectors").select("user_id").limit(100).execute()
+        if not res.data:
+            return 0
+        user_ids = [row['user_id'] for row in res.data]
+        return random.choice(user_ids)
     except Exception as e:
         print(f"Error getting random user: {e}")
         return 0
@@ -83,5 +99,72 @@ def get_user_rated_books(user_id, context=None):
     return []
 
 def recommend_by_books(liked_books, context=None):
-    """Placeholder: Recommends books based on a list of ISBNs."""
-    return get_popular_books(limit=10)
+    """Recommends books based on a list of liked book ISBNs."""
+    if not supabase or not liked_books:
+        # Fallback to popular books if no liked books provided
+        return get_popular_books(limit=20)
+    
+    try:
+        # Strategy: Find users who liked similar books, then get their other favorites
+        # Step 1: Find users who rated these books highly
+        user_res = supabase.table("ratings").select("user_id").in_("isbn", liked_books).eq("rating", 5).limit(50).execute()
+        
+        if not user_res.data:
+            # No users found who liked these books, return diverse popular books
+            return get_popular_books(limit=20)
+        
+        # Get unique user IDs
+        user_ids = list(set([r['user_id'] for r in user_res.data]))
+        
+        # Step 2: Get books highly rated by these users (excluding the ones already liked)
+        recs_res = supabase.table("ratings").select("isbn").in_("user_id", user_ids[:20]).eq("rating", 5).not_.in_("isbn", liked_books).limit(100).execute()
+        
+        if not recs_res.data:
+            # Fallback: return popular books excluding liked ones
+            return get_popular_books(limit=20)
+        
+        # Get unique ISBNs
+        recommended_isbns = list(set([r['isbn'] for r in recs_res.data]))
+        
+        # Step 3: Fetch book details for recommended ISBNs
+        if not recommended_isbns:
+            return get_popular_books(limit=20)
+        
+        # Get book details from books table
+        books_res = supabase.table("books").select("isbn, title, author, year, publisher").in_("isbn", recommended_isbns[:50]).execute()
+        
+        recommendations = []
+        seen_isbns = set()
+        
+        for book in (books_res.data or []):
+            isbn = book.get("isbn", "")
+            if isbn and isbn not in seen_isbns and isbn not in liked_books:
+                recommendations.append({
+                    "Book_ID": isbn,
+                    "Book_Title": book.get("title", "Unknown Title"),
+                    "author": book.get("author", "Unknown Author"),
+                    "year": book.get("year"),
+                    "publisher": book.get("publisher")
+                })
+                seen_isbns.add(isbn)
+        
+        # If we don't have enough recommendations, add popular books (excluding liked ones)
+        if len(recommendations) < 20:
+            popular = get_popular_books(limit=50)
+            for book in popular:
+                if book.get("Book_ID") not in seen_isbns and book.get("Book_ID") not in liked_books:
+                    recommendations.append(book)
+                    seen_isbns.add(book.get("Book_ID"))
+                if len(recommendations) >= 20:
+                    break
+        
+        # Shuffle and return top 20
+        random.shuffle(recommendations)
+        return recommendations[:20]
+        
+    except Exception as e:
+        print(f"Error in recommend_by_books: {e}")
+        import traceback
+        print(traceback.format_exc())
+        # Fallback to popular books
+        return get_popular_books(limit=20)
