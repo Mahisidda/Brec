@@ -49,12 +49,11 @@ def recommend_books_route():
         if not isinstance(liked, list):
             return jsonify({"error": "liked_books must be a list"}), 400
         
+        # MODEL_CONTEXT is optional - recommend_by_books doesn't require it
         ctx = current_app.config.get('MODEL_CONTEXT')
-        if ctx is None:
-            return jsonify({"error": "Server configuration error", "message": "Model context not available"}), 500
         
         recs = recommend_by_books(liked, ctx)
-        print(recs)
+        print(f"[API] Returning {len(recs)} recommendations")
         return jsonify(recs)
     except Exception as e:
         print(f"[API ERROR] Error in recommend_books_route: {e}")
@@ -83,10 +82,8 @@ def popular_books():
     limit = int(request.args.get('limit', 20))
     print(f"[API DEBUG] Requested limit: {limit}")
     
+    # MODEL_CONTEXT is optional for this endpoint since get_popular_books uses Supabase
     ctx = current_app.config.get('MODEL_CONTEXT')
-    if ctx is None:
-        print("[API DEBUG] ERROR: MODEL_CONTEXT not found in app.config!")
-        return jsonify({"error": "Server configuration error", "message": "Model context not available"}), 500
     
     print(f"[API DEBUG] Calling get_popular_books with limit: {limit}")
     books = get_popular_books(limit=limit, context=ctx)
